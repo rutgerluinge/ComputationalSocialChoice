@@ -52,29 +52,23 @@ def plurality_round(votes: list[Profile]) -> dict[int, int]:
 
 
 def remove_alternative(vote_profile: list[Profile], alternatives_to_remove: list[int]) -> list[Profile]:
-
     for alternative in alternatives_to_remove:  # in case of a tie this will run more than once:
-        for vote in vote_profile.copy():
-            print(vote.ballot, end="-> ")
-            if alternative in vote.ballot:      # check if alternative is in ballot
+        for vote in vote_profile.copy():  # needs copy as we are removing from list
+            if alternative in vote.ballot:  # check if alternative is in ballot
                 vote.ballot.remove(alternative)
-            print(vote.ballot)
-            if len(vote.ballot) == 0:           # remove empty ballots (no longer necessary)
+
+            if len(vote.ballot) == 0:  # remove empty ballots (no longer necessary)
                 vote_profile.remove(vote)
 
     return vote_profile
 
 
-
-def print_recap(p_scores: dict[int, int], alternatives:list[int], vote_round:int) -> None:
+def print_recap(p_scores: dict[int, int], alternatives: list[int], vote_round: int) -> None:
     print(f"____________________________ vote round: {vote_round} ________________________________________\n"
           f"plurality scores: {p_scores}\n"
           f"alternatives to be removed: {alternatives}\n"
           f"___________________________________________________________________________________\n")
 
-def print_profiles(votes: list[Profile]):
-    for votes in votes:
-        print(votes.ballot)
 
 def stv_computations():
     """STV algorithm:
@@ -92,12 +86,11 @@ def stv_computations():
 
         print_recap(p_scores, alternatives, vote_round)
         votes = remove_alternative(vote_profile=votes, alternatives_to_remove=alternatives)
-        # print_profiles(votes)
+        
         if len(alternatives) == len(p_scores):
-            break   #winner found
+            break  # winner found
 
         vote_round += 1
-
 
 
 if __name__ == '__main__':
