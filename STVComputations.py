@@ -8,6 +8,17 @@ class Profile:
     ballot: list[int]
     count: int
 
+def format_ballot2(ballot:str)-> str:
+    ballot = ballot.strip()
+    equal = re.findall(r'{.*?}', ballot)
+    if equal:
+        sub = re.sub(r',','=', equal[0][1:-1])
+        ballot = re.sub(r'{.*?}', sub, ballot)
+
+    order = re.sub(r',', '>', ballot)
+    print(order)
+
+    return ""
 
 def format_ballot(ballot: str) -> list[int]:
     # @TODO i believe we can remove everything between {} as it states that the alternatives beteen the brackets are equally ranked, and every occasion happens at the end
@@ -16,8 +27,35 @@ def format_ballot(ballot: str) -> list[int]:
     ballot = re.sub(r',{.*?}', '', ballot)  # removes everything between {} ,
 
     ballot_str = ballot.split(',')  # make list
+
     ballot_int = [int(x) for x in ballot_str]  # convert to int
     return ballot_int
+
+
+def manipulate_ballot_1(profiles: list[Profile]):
+    manip_count = 0
+    for profile in profiles:
+        if 1 in profile.ballot and 4 in profile.ballot and len(
+                profile.ballot) > 2:  # in the case where it ranks 4 as well
+            if profile.ballot.index(1) == 0:
+                continue
+
+            if profile.ballot.index(4) > profile.ballot.index(1) > 0:
+                # print(profile.ballot, end="->")
+                profile.ballot.remove(1)
+                profile.ballot.insert(0, 1)
+                manip_count += profile.count
+                # print(profile.ballot)
+
+        elif 1 in profile.ballot:
+            if profile.ballot.index(1) > 0:
+                print(profile.ballot, end="->")
+                profile.ballot.remove(1)
+                profile.ballot.insert(0, 1)
+                manip_count += profile.count
+                print(profile.ballot)
+
+    print(manip_count)
 
 
 def extract_data() -> list[Profile]:
@@ -25,7 +63,7 @@ def extract_data() -> list[Profile]:
         :return dictionary containing nr of votes as key, and ballot as value """
 
     votes = list()
-    with open("dataset.txt", "r") as file:
+    with open("dataset_revised.txt", "r") as file:
         for line in file:
             data_parts = line.split(":")  # split count from ballot
             count = int(data_parts[0])
@@ -37,22 +75,21 @@ def extract_data() -> list[Profile]:
     return votes
 
 
-def plurality_round(votes: list[Profile]) -> dict[int, int]:
+def plurality_round(votes: list[Profile], available_alternatives: list[int]) -> dict[int, int]:
     """does 1 round of plurality, then returns a dictionary containing alternative:nr of votes (plurality) """
     alternative_count = dict()
-    for profile in votes:
-        top_vote = profile.ballot[0]
+    for alternative in available_alternatives:
+        alternative_count[alternative] = 0
 
-        if top_vote in alternative_count:
-            alternative_count[top_vote] += profile.count
-        else:
-            alternative_count[top_vote] = profile.count
+    for profile in votes:
+        alternative_count[profile.ballot[0]] += profile.count
 
     return alternative_count
 
 
 def remove_alternative(vote_profile: list[Profile], alternatives_to_remove: list[int]) -> list[Profile]:
     for alternative in alternatives_to_remove:  # in case of a tie this will run more than once:
+
         for vote in vote_profile.copy():  # needs copy as we are removing from list
             if alternative in vote.ballot:  # check if alternative is in ballot
                 vote.ballot.remove(alternative)
@@ -75,18 +112,24 @@ def stv_computations():
     - calculate plurality scores
     - remove alternative with lowest alternative score (in case of a tie remove both)
     """
+    all_alternatives = [x for x in range(1, 12)]  # hardcoded for now
+
     votes = extract_data()
     vote_round = 1
 
-    while True:
-        p_scores = plurality_round(votes=votes)
+    while vote_round < 12:
+        p_scores = plurality_round(votes=votes, available_alternatives=all_alternatives)
 
         min_value = min(p_scores.values())
         alternatives = [key for key, value in p_scores.items() if value == min_value]
 
+        for alt in alternatives:
+            all_alternatives.remove(alt)
+
         print_recap(p_scores, alternatives, vote_round)
+
         votes = remove_alternative(vote_profile=votes, alternatives_to_remove=alternatives)
-        
+
         if len(alternatives) == len(p_scores):
             break  # winner found
 
