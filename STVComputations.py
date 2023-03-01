@@ -9,8 +9,8 @@ class Profile:
     count: int
 
 
-def format_ballot3(ballot: str) -> list:
-    """nasty way of doing this"""
+def format_ballot(ballot: str) -> list:
+    """extract good format for ballot from a string"""
 
     my_list = []
     for x in re.findall('\d+|\{[^}]*\}', ballot):
@@ -23,41 +23,17 @@ def format_ballot3(ballot: str) -> list:
     return my_list
 
 
-def format_ballot(ballot: str) -> list[int]:
-    # @TODO i believe we can remove everything between {} as it states that the alternatives beteen the brackets are equally ranked, and every occasion happens at the end
-    ballot = ballot.strip()  # removes any whitespaces or newline characters
+# def format_ballot(ballot: str) -> list[int]:
+#     # @TODO i believe we can remove everything between {} as it states that the alternatives beteen the brackets are equally ranked, and every occasion happens at the end
+#     ballot = ballot.strip()  # removes any whitespaces or newline characters
+#
+#     ballot = re.sub(r',{.*?}', '', ballot)  # removes everything between {} ,
+#
+#     ballot_str = ballot.split(',')  # make list
+#
+#     ballot_int = [int(x) for x in ballot_str]  # convert to int
+#     return ballot_int
 
-    ballot = re.sub(r',{.*?}', '', ballot)  # removes everything between {} ,
-
-    ballot_str = ballot.split(',')  # make list
-
-    ballot_int = [int(x) for x in ballot_str]  # convert to int
-    return ballot_int
-
-
-def manipulate_ballot_1(profiles: list[Profile], winner_alternative:int = 8, wished_alternative:int = 2):
-    manip_count = 0
-    for profile in profiles:
-        idx_wish = None
-        idx_win = None
-        for idx, alternative in enumerate(profile.ballot):
-            if alternative[0] == wished_alternative:
-                idx_wish = idx
-            if alternative[0] == winner_alternative:
-                idx_win = idx
-
-        if idx_wish is None:
-            continue
-        if idx_win is None and idx_wish == 0:
-            continue
-        elif idx_win is None and idx_wish > 0:
-            profile.ballot[0], profile.ballot[idx_wish] = profile.ballot[idx_wish], profile.ballot[0] #swap
-            manip_count += profile.count
-        elif idx_win > idx_wish:
-            profile.ballot[0], profile.ballot[idx_wish] = profile.ballot[idx_wish], profile.ballot[0]  # swap
-            manip_count += profile.count
-        elif idx_wish > idx_win:
-            continue
 
 
 def extract_data() -> list[Profile]:
@@ -70,7 +46,7 @@ def extract_data() -> list[Profile]:
             data_parts = line.split(":")  # split count from ballot
             count = int(data_parts[0])
             ballot = data_parts[1]
-            ballot = format_ballot3(ballot)
+            ballot = format_ballot(ballot)
 
             votes.append(Profile(ballot, count))
 
@@ -112,7 +88,7 @@ def print_recap(p_scores: dict[int, int], alternatives: list[int], vote_round: i
           f"___________________________________________________________________________________\n")
 
 
-def stv_computations(votes:list[Profile], nr_of_alt:int) -> list[int]:
+def stv_computations(votes:list[Profile], nr_of_alt:int, printing:bool) -> list[int]:
     """STV algorithm:
     - calculate plurality scores
     - remove alternative with lowest alternative score (in case of a tie remove both)
@@ -127,7 +103,8 @@ def stv_computations(votes:list[Profile], nr_of_alt:int) -> list[int]:
         min_value = min(p_scores.values())
         alternatives = [key for key, value in p_scores.items() if value == min_value]
 
-        print_recap(p_scores, alternatives, vote_round)
+        if printing:
+            print_recap(p_scores, alternatives, vote_round)
 
         votes = remove_alternative(vote_profile=votes, alternatives_to_remove=alternatives)
 
@@ -138,9 +115,9 @@ def stv_computations(votes:list[Profile], nr_of_alt:int) -> list[int]:
             return alternatives
 
         vote_round += 1
+
     return [0]
 
 if __name__ == '__main__':
     votes = extract_data()
-    #manipulate_ballot_1(profiles=votes, winner_alternative=8, wished_alternative=2)
-    print(f"winner: {stv_computations(votes, 11)}")
+    print(f"winner: {stv_computations(votes, 11, printing=True)}")
