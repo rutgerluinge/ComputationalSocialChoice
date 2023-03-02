@@ -53,7 +53,7 @@ def extract_data() -> list[Profile]:
     return votes
 
 
-def plurality_round(votes: list[Profile], available_alternatives: list[int]) -> dict[int, int]:
+def plurality_round(votes: list[Profile], available_alternatives: list[int]) -> dict[int, float]:
     """does 1 round of plurality, then returns a dictionary containing alternative:nr of votes (plurality) """
     alternative_count = dict()
     for alternative in available_alternatives:
@@ -62,6 +62,10 @@ def plurality_round(votes: list[Profile], available_alternatives: list[int]) -> 
     for profile in votes:
         if len(profile.ballot[0]) == 1:  # should not be doing for [{x,y},z,w]
             alternative_count[profile.ballot[0][0]] += profile.count
+
+        if len(profile.ballot[0]) > 1:  # in case [{1, 2}, 3, 4] -> both 1 and 2 should get 0.5 point per vote
+            for idx, alt in enumerate(profile.ballot[0]):
+                alternative_count[profile.ballot[0][idx]] += profile.count * (1/len(profile.ballot[0]))
 
     return alternative_count
 
@@ -81,7 +85,7 @@ def remove_alternative(vote_profile: list[Profile], alternatives_to_remove: list
     return vote_profile
 
 
-def print_recap(p_scores: dict[int, int], alternatives: list[int], vote_round: int) -> None:
+def print_recap(p_scores: dict[int, float], alternatives: list[int], vote_round: int) -> None:
     print(f"____________________________ vote round: {vote_round} ________________________________________\n"
           f"plurality scores: {p_scores}\n"
           f"alternatives to be removed: {alternatives}\n"
