@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Dict, Set
+from typing import List, Dict, Optional, Set
 import re
 import itertools
 from copy import deepcopy, copy
@@ -17,6 +17,18 @@ class Profile:
     def alts(self) -> Set[int]:
         "Shortcut to get the set of alts in this Profile"
         return set(itertools.chain(*self.ballot))
+
+    def rank_of(self, a: int) -> int:
+        """get the rank of 'a' in lin-order cells.
+        Returns len(ballot) for the top ranking,
+        len(ballot) -1 for the second rank etc,
+        last rank is 1. Not ranked is 0
+        """
+        n_cells = len(self.ballot)
+        for i, cell in enumerate(self.ballot):
+            if a in cell:
+                return n_cells - i
+        return 0
 
 
 def all_alts(ps: List[Profile]) -> Set[int]:
@@ -108,6 +120,13 @@ def plurality_round(
         # =====
 
     return alternative_count
+
+
+def plurality(votes: List[Profile]) -> Set[int]:
+    alts = all_alts(votes)
+    p_scores = plurality_round(votes, alts)
+    max_p = max(p_scores.values())
+    return set([a for a in alts if p_scores[a] == max_p])
 
 
 def remove_alternative(

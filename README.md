@@ -1,5 +1,15 @@
 # ComputationalSocialChoice
 
+## Setup
+
+### virtualenv
+
+create and/or source your favourite virtualenv
+
+### deps
+
+`pip install -r reqs.txt`
+
 ## Implem
 
 ### STVComputations.py
@@ -65,6 +75,17 @@ print("mayor winner:", sc) # -> {4}
 A test suite checking correctness properties of the implementation is given in `test_stv.py`
 
 you can run the suite via `python test_stv.py`
+
+
+### Manipulating elections
+
+WORK IN PROGRESS
+
+I introduced a module `manip.py` that sets up infrastructure for a manipulation serch problem.
+The current manipulation hypothesis generation procedure seems to not be enough... but
+we still have some time to figure this out. See the module for some documentation/ideas of my implementation.
+
+`manip_main.py` is an example of running such procedure
 
 
 ## NOTES

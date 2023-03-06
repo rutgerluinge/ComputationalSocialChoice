@@ -1,5 +1,8 @@
+from collections import OrderedDict
+from typing import List, TypedDict
 import STVComputations as stv
 from STVComputations import Profile, stv_computations
+import manip
 
 import unittest
 
@@ -202,6 +205,240 @@ class TestSTVFromFile(unittest.TestCase):
             )
 
             self.assertSetEqual(set(p_res), spec["expected"])
+
+
+## ---- Tests for the manip module ---
+
+
+class TestOptimisticOutcomeComparatorProperties(unittest.TestCase):
+
+    comparators: List[manip.OutcomeComparator] = [manip.optimistic_comparator]
+
+    cases = OrderedDict(
+        [
+            (
+                "pliny_example",
+                {
+                    # consider a voter with the following truthful profile
+                    "trueballot": Profile([[3], [2], [1]], 1),
+                    "outcomes": [
+                        # ok new say the original outcome was {1}
+                        # and the new one is {2}, then since
+                        # 2 > 1 in the order, then this comparison should
+                        # yield "+1" i.e. the voter is happier with the new outcome
+                        {"orig": {1}, "new": {2}, "comp": 1},
+                        {"orig": {1}, "new": {3}, "comp": 1},  # same here
+                        # another example that should be indiff:
+                        # an outcome is restricted to strictly prefrred one
+                        # but optimistic only looks at max rank, so comp=0
+                        {"orig": {2, 3}, "new": {3}, "comp": 0},
+                        # this one is the opposite, the voter is worse off with this new result
+                        {"orig": {3}, "new": {1}, "comp": -1},
+                        {"orig": {2}, "new": {1}, "comp": -1},  # also here
+                    ],
+                },
+            ),
+            (
+                "tied_ord_example",
+                {
+                    "trueballot": Profile([[4, 3], [2, 1]], 1),
+                    "outcomes": [
+                        {"orig": {1}, "new": {3}, "comp": 1},
+                        # in this case indifference
+                        {"orig": {3}, "new": {4}, "comp": 0},
+                        {"orig": {3}, "new": {3, 4}, "comp": 0},
+                        {"orig": {3, 4}, "new": {4}, "comp": 0},
+                        # here we extend with a higher rank,
+                        # max rank grows so comp=1
+                        {"orig": {2}, "new": {3, 2}, "comp": 1},
+                    ],
+                },
+            ),
+            (
+                "foreign_alts",
+                {
+                    "trueballot": Profile([[1], [2]], 1),
+                    "outcomes": [
+                        # voter is indiff to foreign alternatives
+                        {"orig": {3}, "new": {4}, "comp": 0},
+                        # voter is worse off with a foreig alt even WRT to lowest ranking
+                        {"orig": {2}, "new": {3}, "comp": -1},
+                    ],
+                },
+            ),
+        ]
+    )
+
+    def test_props(self):
+
+        for comp in self.comparators:  # for each comparator
+            for name, spec in self.cases.items():  # for each scenario
+                trueballot = spec["trueballot"]
+                for i, outc in enumerate(
+                    spec["outcomes"]
+                ):  # for each test-case-outcome
+                    result = comp(
+                        trueballot, outc["orig"], outc["new"], trueballot.alts()
+                    )
+
+                    self.assertEqual(
+                        result,
+                        outc["comp"],
+                        f"Comparator [{comp}] fails test case: {name}['outcome'][{i}]",
+                    )
+
+
+class TestPessimisticOutcomeComparatorProperties(unittest.TestCase):
+
+    comparators: List[manip.OutcomeComparator] = [manip.pessimistic_comparator]
+
+    cases = OrderedDict(
+        [
+            (
+                "pliny_example",
+                {
+                    # consider a voter with the following truthful profile
+                    # NOTE: pessimistic look at the minimal rank
+                    "trueballot": Profile([[3], [2], [1]], 1),
+                    "outcomes": [
+                        # these increase rank, so both ok, and same as optimistic
+                        {"orig": {1}, "new": {2}, "comp": 1},
+                        {"orig": {1}, "new": {3}, "comp": 1},  # same here
+                        # here we differ from optimistic:
+                        # the new alt has eliminated a low rank opt, so while optim was
+                        # indifferent, pessimistc does prefer this outcome
+                        # NOTE: difference with optimistic_comparator
+                        {"orig": {2, 3}, "new": {3}, "comp": 1},
+                        # this one is the opposite, the voter is worse off with this new result
+                        {"orig": {3}, "new": {1}, "comp": -1},
+                        {"orig": {2}, "new": {1}, "comp": -1},  # also here
+                    ],
+                },
+            ),
+            (
+                "tied_ord_example",
+                {
+                    "trueballot": Profile([[4, 3], [2, 1]], 1),
+                    "outcomes": [
+                        {"orig": {1}, "new": {3}, "comp": 1},
+                        # in this case indifference
+                        {"orig": {3}, "new": {4}, "comp": 0},
+                        {"orig": {3}, "new": {3, 4}, "comp": 0},
+                        {"orig": {3, 4}, "new": {4}, "comp": 0},
+                        # here we extend with a higher rank,
+                        # max rank grows, but minrank stays the same,
+                        # so pessitic is actually indiff to this change
+                        # NOTE: diffrence with optimistic_comparator
+                        {"orig": {2}, "new": {3, 2}, "comp": 0},
+                    ],
+                },
+            ),
+            (
+                "foreign_alts",
+                {
+                    "trueballot": Profile([[1], [2]], 1),
+                    "outcomes": [
+                        # voter is indiff to foreign alternatives
+                        {"orig": {3}, "new": {4}, "comp": 0},
+                        # voter is worse off with a foreig alt even WRT to lowest ranking
+                        {"orig": {2}, "new": {3}, "comp": -1},
+                    ],
+                },
+            ),
+        ]
+    )
+
+    def test_props(self):
+
+        for comp in self.comparators:  # for each comparator
+            for name, spec in self.cases.items():  # for each scenario
+                trueballot = spec["trueballot"]
+                for i, outc in enumerate(
+                    spec["outcomes"]
+                ):  # for each test-case-outcome
+                    result = comp(
+                        trueballot, outc["orig"], outc["new"], trueballot.alts()
+                    )
+
+                    self.assertEqual(
+                        result,
+                        outc["comp"],
+                        f"Comparator [{comp}] fails test case: {name}['outcome'][{i}]",
+                    )
+
+
+class TestPlinyManipulation(unittest.TestCase):
+
+    orig_votes: List[Profile] = [
+        Profile([[1], [2], [3]], 102),
+        Profile([[2], [1], [3]], 101),
+        Profile([[3], [2], [1]], 100),
+    ]
+
+    def test_canFindPlinyPluralityManip(self):
+
+        # compute plurality vote for pliny scenario
+        res = stv.plurality(self.orig_votes)
+
+        self.assertEqual({1}, res)  # check original verdict is computed correctly
+
+        # let's see if our implem can find the manipulation mentioned in the lecture notes
+
+        # configure the search
+        config = manip.ManipulatorConfig(
+            trueballs=self.orig_votes,
+            scf=stv.plurality,
+            comparator=manip.pessimistic_comparator,
+            manip_gen=manip.permut_manip_gen,
+        )
+
+        # get all manips
+        manips = list(manip.search_manips(config, disable_progess=True))
+
+        # check that at least a minpulation was found
+        self.assertTrue(len(manips) > 0)
+
+        # check that the manipulation c,b,a -> b,c,a
+        # described in the lecture notes is found by our search alg
+        self.assertTrue(
+            any(
+                map(
+                    lambda m: m.from_ord == [[3], [2], [1]]
+                    and m.to_ord == [[2], [3], [1]]
+                    and m.new_outcome == {2},
+                    manips,
+                )
+            )
+        )
+
+
+# def test_pliny():
+#     # a -> 1
+#     # b -> 2
+#     # c -> 3
+#     votes = [
+#         Profile([[1], [2], [3]], 102),
+#         Profile([[2], [1], [3]], 101),
+#         Profile([[3], [2], [1]], 100),
+#     ]
+
+#     print(">>> truthfuls:")
+#     plur_res = stv.plurality(votes)
+#     print("Plur(pliny) =", plur_res)
+#     stv_res = stv.stv(votes)
+#     print("STV(pliny) =", stv_res)
+
+#     votes_manip = [
+#         Profile([[1], [2], [3]], 102),
+#         Profile([[2], [1], [3]], 101),
+#         Profile([[2], [3], [1]], 100),
+#     ]
+
+#     print(">>> maips:")
+#     m_plur_res = stv.plurality(votes_manip)
+#     print("Plur(m_pliny) =", m_plur_res)
+#     m_stv_res = stv.stv(votes_manip)
+#     print("STV(m_pliny) =", m_stv_res)
 
 
 if __name__ == "__main__":
