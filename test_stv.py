@@ -182,11 +182,11 @@ class TestSTVCompute(unittest.TestCase):
 class TestSTVFromFile(unittest.TestCase):
     cases = {
         "city-council": {
-            "file": "./dataset_revised.txt",
+            "file": "./data/city-council.txt",
             "expected": {8},
         },
         "mayor": {
-            "file": "./dataset.txt",
+            "file": "./data/mayor.txt",
             "expected": {4},
         },
     }
@@ -275,10 +275,13 @@ class TestOptimisticOutcomeComparatorProperties(unittest.TestCase):
             for name, spec in self.cases.items():  # for each scenario
                 trueballot = spec["trueballot"]
                 for i, outc in enumerate(
-                    spec["outcomes"]
+                    spec["outcomes"]  # type:ignore
                 ):  # for each test-case-outcome
                     result = comp(
-                        trueballot, outc["orig"], outc["new"], trueballot.alts()
+                        trueballot,  # type:ignore
+                        outc["orig"],
+                        outc["new"],
+                        trueballot.alts(),  # type:ignore
                     )
 
                     self.assertEqual(
@@ -369,6 +372,8 @@ class TestPessimisticOutcomeComparatorProperties(unittest.TestCase):
 
 class TestPlinyManipulation(unittest.TestCase):
 
+    multiproc: bool = False
+
     orig_votes: List[Profile] = [
         Profile([[1], [2], [3]], 102),
         Profile([[2], [1], [3]], 101),
@@ -390,6 +395,7 @@ class TestPlinyManipulation(unittest.TestCase):
             scf=stv.plurality,
             comparator=manip.pessimistic_comparator,
             manip_gen=manip.permut_manip_gen,
+            multiproc=self.multiproc,
         )
 
         # get all manips
@@ -410,6 +416,59 @@ class TestPlinyManipulation(unittest.TestCase):
                 )
             )
         )
+
+
+class TestPlinyManipulationParallel(unittest.TestCase):
+
+    multiproc: bool = True
+
+    orig_votes: List[Profile] = [
+        Profile([[1], [2], [3]], 102),
+        Profile([[2], [1], [3]], 101),
+        Profile([[3], [2], [1]], 100),
+    ]
+
+    def test_canFindPlinyPluralityManip(self):
+
+        # compute plurality vote for pliny scenario
+        res = stv.plurality(self.orig_votes)
+
+        self.assertEqual({1}, res)  # check original verdict is computed correctly
+
+        # let's see if our implem can find the manipulation mentioned in the lecture notes
+
+        # configure the search
+        config = manip.ManipulatorConfig(
+            trueballs=self.orig_votes,
+            scf=stv.plurality,
+            comparator=manip.pessimistic_comparator,
+            manip_gen=manip.permut_manip_gen,
+            multiproc=self.multiproc,
+        )
+
+        # get all manips
+        manips = list(manip.search_manips(config, disable_progess=True))
+
+        # print(manips)
+        # check that at least a minpulation was found
+        self.assertTrue(len(manips) > 0)
+
+        # check that the manipulation c,b,a -> b,c,a
+        # described in the lecture notes is found by our search alg
+        self.assertTrue(
+            any(
+                map(
+                    lambda m: m.from_ord == [[3], [2], [1]]
+                    and m.to_ord == [[2], [3], [1]]
+                    and m.new_outcome == {2},
+                    manips,
+                )
+            )
+        )
+
+
+# class TestPlinyManipulation(TestPlinyManipulation):
+#     multiproc = True
 
 
 # def test_pliny():

@@ -40,18 +40,33 @@ From the lecture notes we have an example where Plurarlity is manipulable (see t
 """
 from pprint import pprint
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Generator, Iterable, List, Literal, Set
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Generator,
+    Iterable,
+    List,
+    Literal,
+    Optional,
+    Set,
+    Union,
+)
+import os
 from copy import deepcopy
 import STVComputations as stv
-from STVComputations import Profile
+from STVComputations import Profile, all_alts
 import itertools as itt
 from tqdm import tqdm
+from multiprocessing import Pool
+from utils import aka, aka_or_name
 
 
 ProfileList = List[Profile]
 LinOrd = List[List[int]]
 SCF = Callable[[List[Profile]], Set[int]]
-Compared = Literal[-1] | Literal[0] | Literal[1]
+Compared = Union[Literal[-1], Literal[0], Literal[1]]
+BranchPruneFn = Callable[["ManipulatorConfig", int], bool]
 
 # the comparator signature:
 # a function that takes a profile, 2 outcomes (Set[int]) and the set of
@@ -68,6 +83,7 @@ ManipGen = Callable[[ProfileList, LinOrd], Generator[LinOrd, None, None]]
 # Comparators
 
 
+@aka("optim")
 def optimistic_comparator(
     p: Profile, out_a: Set[int], out_b: Set[int], alts: Set[int]
 ) -> Compared:
@@ -90,6 +106,7 @@ def optimistic_comparator(
     return 0  # indifference
 
 
+@aka("pessim")
 def pessimistic_comparator(
     p: Profile, out_a: Set[int], out_b: Set[int], alts: Set[int]
 ) -> Compared:
@@ -116,9 +133,10 @@ def pessimistic_comparator(
 # Manip Generators
 
 
+@aka("perm")
 def permut_manip_gen(_: ProfileList, o: LinOrd) -> Generator[LinOrd, None, None]:
     """
-    A manipulated ballot list than yields permutations of the original ballot.
+    A manipulated ballot generator that yields permutations of the original ballot.
     NOTE: therefore this generator will never mix alternatives into new linear order
     ties, i.e. if we have [[1],[2],[3]] this cannot generate orders such as [[1,2],[3]],
     it will only produce reordering of the given cells.
@@ -127,6 +145,19 @@ def permut_manip_gen(_: ProfileList, o: LinOrd) -> Generator[LinOrd, None, None]
     """
     for p in itt.permutations(o):
         yield list(p)
+
+
+@aka("perm-all")
+def all_permut_manip_gen(p: ProfileList, o: LinOrd) -> Generator[LinOrd, None, None]:
+    """
+    A manipulated ballot generator that yields all permutations of the full set of alternatives
+    containes in the given ProfileList (i.e. of candidates in play)
+    NOTE:
+    NOTE: this ignores the actual linear order
+    """
+    alts = [[x] for x in stv.all_alts(p)]
+    for perm in itt.permutations(alts):
+        yield list(perm)
 
 
 # ==========================================
@@ -157,7 +188,47 @@ class ManipulatorConfig:
     comparator: OutcomeComparator
     manip_gen: ManipGen
 
+    # all alts is inferred if not specified
+    all_alts: Set[int] = field(default_factory=set)
+
     minimal_n_stop: bool = True
+    print_found: bool = False
+
+    multiproc: bool = False
+
+    branch_prune: Optional[BranchPruneFn] = None
+
+    # the true outcome of the non-manip election, inferred
+    true_outcome: Set[int] = field(init=False)
+
+    def __post_init__(self):
+        self.true_outcome = self.scf(self.trueballs)
+
+        if not self.all_alts:
+            self.all_alts = stv.all_alts(self.trueballs)
+
+    def summary(self) -> str:
+        return """\
+trueballs\t=\t{}
+scf\t=\t{}
+comparator\t=\t{}
+manip_gen\t=\t{}
+true_outcome\t=\t{}
+all_alts\t=\t{}
+minimal_n_stop\t=\t{}
+multiproc\t=\t{}
+branch_prune\t=\t{}
+""".format(
+            stv.tot_votes(self.trueballs),
+            aka_or_name(self.scf),
+            aka_or_name(self.comparator),
+            aka_or_name(self.manip_gen),
+            self.true_outcome,
+            self.all_alts,
+            self.minimal_n_stop,
+            0 if not self.multiproc else os.cpu_count(),
+            aka_or_name(self.branch_prune),
+        )
 
 
 @dataclass
@@ -172,7 +243,6 @@ class ManipResult:
     in 2 new entries (1 if all the voters of that original profile line
     switched). If the manip row happens to be the same as one of the other truthfuls
     those will not be merged, so we'll have 2 Profile in the List with the same .ballot
-
     """
 
     from_ord: LinOrd
@@ -182,103 +252,185 @@ class ManipResult:
     new_outcome: Set[int]
     new_votes: List[Profile]
 
+    @staticmethod
+    def results_summary(results: List["ManipResult"]):
+        n_from = len(list(itt.groupby(results, lambda x: x.from_ord)))
+        n_to = len(list(itt.groupby(results, lambda x: x.to_ord)))
+        n_from_to = len(list(itt.groupby(results, lambda x: (x.from_ord, x.to_ord))))
+
+        return """\
+count\t=\t{}
+n_from\t=\t{}
+n_to\t=\t{}
+n_from_to\t=\t{}
+""".format(
+            len(results), n_from, n_to, n_from_to
+        )
+
+
+def test_manipulation(
+    conf: ManipulatorConfig, i_coalition: int, manip_cand: LinOrd
+) -> Generator[ManipResult, None, None]:
+    """Test that under the given specification `conf` the i_th coalition
+    could maniuplate the election by switching to `manip_cand` linear order
+    instead of the truthful one.
+
+    The process will try first with just 1 voter from the coalition switching, sequentially
+    up to all memebers of the coalition switching to the new linear order.
+
+    As soon as number of switchers results in a successful mainpulation it yields that
+    scenario in the form of a ManipResult record. As such if you just care about A manipulation
+    just call next once on the generator returned by this function, if you want all mainpulations
+    call list on it.
+
+    NOTE: when calling next, if no manipulation is possible a StopIteration
+    exception is thrwon which you have to handle as a negative search result (no
+    manip possible according to the manipulation scheme `conf` for the ith
+    coalition). If calling list then a (possibly empty) list is returned and
+    there is not error to handle in case of negative result.
+
+    NOTE: if the manipulator config species `minimal_n_stop==True` then if a manipulation
+    is found for some number of swithcers, no furter investigation for this coalition is
+    pursued and the generator stop. Else the search contiues producing result also for higher
+    number of switchers.
+
+    """
+
+    # given the truthful ballot of the ith coalition
+    orig_coalition = conf.trueballs[i_coalition]
+
+    # iterate on the number of switchers
+    for n_manips in range(1, orig_coalition.count + 1):
+
+        # ok now clone the List[Profiles] as this will be destructively modified
+        new_balls = deepcopy(conf.trueballs)
+
+        manip_p = Profile(manip_cand, n_manips)  # build manipulate profile
+
+        # if n_manips is not all of the voters previously using this profile
+        # the we need to keep some as before
+        rest_p = None
+        if n_manips < orig_coalition.count:
+            rest_p = Profile(orig_coalition.ballot, orig_coalition.count - n_manips)
+
+        # delete the from the cloned List[Profile] the working Profile
+
+        del new_balls[i_coalition]
+
+        new_balls.append(manip_p)  # add the manipulated profiles
+
+        # if present add the rest of non-manip profiles i.e. voters from the
+        # coalition that did not switch
+        if rest_p:
+            new_balls.append(rest_p)
+
+        # check the new result according to our scf
+        manip_outcome = conf.scf(new_balls)
+
+        # use the comparator to see if this is positive result WRT to the coalition's original
+        # preference order, the original outcome and the manipulated outcome under the comparator
+        # specified in the scheme
+        compar = conf.comparator(
+            orig_coalition, conf.true_outcome, manip_outcome, conf.all_alts
+        )
+
+        if compar > 0:
+            result = ManipResult(
+                from_ord=orig_coalition.ballot,
+                to_ord=manip_cand,
+                n=n_manips,
+                orig_outcome=conf.true_outcome,
+                new_outcome=manip_outcome,
+                new_votes=new_balls,
+            )
+            if conf.print_found:
+                print("\n\nFound! -> ", result)
+                pprint(result.new_votes)
+
+            yield result
+
+            # if minimal n stop will change manipulation
+            # candidate if one is found for this order change. If not,
+            # then say the for this candidate 2 switches are enough for the
+            # manipulation to succeed, then 3,4,5 .. N will also be generated
+            if conf.minimal_n_stop:
+                break
+
+
+# === utilities to parallelize the search
+
+
+@dataclass
+class ManipTask:
+    conf: ManipulatorConfig
+    i_coalition: int
+
+    def __call__(self, x: LinOrd):
+        # unfortunately we cannot return a generator
+        # for tasks exectured in subprocess as it needs to be a picklable result
+        # so in this case we must exhaustively search.
+        # if conf.minimal_n_stop is true this is actually the same thing as
+        # if there is a result then that is also the last result, if there is no result
+        # then one hast to visti all search paths anyway
+        return list(test_manipulation(self.conf, self.i_coalition, x))
+
 
 def search_manips(conf: ManipulatorConfig, disable_progess=False):
     """
     Generator of search results.
 
     Implementation of the search problem described by the given config.
-
-    NOTE: this is a naive implementation with no particular optimizations/heuristics
-
     """
 
     true_outcome = conf.scf(conf.trueballs)
 
     _all_alts = stv.all_alts(conf.trueballs)
 
-    # ok so now for each linear order in the list of Profile
-    # we want to check if by strategic voting we can get a better outcome for this
-    # profile
-    for i_prof, p in tqdm(
-        enumerate(conf.trueballs),
-        desc="outer (coalition)",
-        position=0,
-        total=len(conf.trueballs),
-        disable=disable_progess,
-    ):
-        # generate candidate manipulations
+    pool = Pool()
 
-        # === NOTE HACK ===
-        # this is just a HACK to avoid huge permutation lists for now, otherwise it may
-        # take hours to complete
-        # this for the 5 alts problem this is never the case clearly,
-        # for the 11 alts the factorial behind premutations explodes fast after 6.
-        # maybe bruteforcing permutations is not the way...
-        ##
-        # if len(p.ballot) > 6:
-        #     print("!!!!>>>> skipping large ballot: len=", len(p.ballot))
-        #     continue
-
-        cands = conf.manip_gen(conf.trueballs, p.ballot)
-
-        for manip_cand in tqdm(
-            cands,
-            desc=f"mid-{i_prof}",
-            position=1,
-            leave=False,
+    with pool:
+        # ok so now for each linear order in the list of Profile
+        # we want to check if by strategic voting we can get a better outcome for this
+        # profile
+        for i_prof, p in tqdm(
+            enumerate(conf.trueballs),
+            desc="outer (coalition)",
+            position=0,
+            total=len(conf.trueballs),
             disable=disable_progess,
         ):
-            # we start with a single 1 changing profile, up to
-            # all of them changing profile
-            for n_manips in range(1, p.count + 1):
+            # generate candidate manipulations
 
-                # ok now clone the List[Profiles]
-                new_balls = deepcopy(conf.trueballs)
+            # check if this branch should be skipped
+            if conf.branch_prune and conf.branch_prune(conf, i_prof):
+                continue
 
-                # build a new Profile for the manipulators
-                manip_p = Profile(manip_cand, n_manips)
+            cands = conf.manip_gen(conf.trueballs, p.ballot)
 
-                # if n_manips is not all of the voters previously using this profile
-                # the we need to keep some as before
-                rest_p = None
-                if n_manips < p.count:
-                    rest_p = Profile(p.ballot, p.count - n_manips)
+            dec_cands = tqdm(
+                cands,
+                desc=f"mid-{i_prof}",
+                position=1,
+                leave=False,
+                disable=disable_progess,
+            )
 
-                # delete the from the clones List[Profile] the working Profile
-
-                del new_balls[i_prof]
-
-                # add the manipulated profiles
-                new_balls.append(manip_p)
-
-                # if present add the rest of non-manip profiles
-                if rest_p:
-                    new_balls.append(rest_p)
-
-                manip_outcome = conf.scf(new_balls)
-
-                compar = conf.comparator(p, true_outcome, manip_outcome, _all_alts)
-
-                if compar > 0:
-                    # print("<<<", p.ballot, "->", manip_cand, f"[{n_manips}]")
-                    # we found a successfull manuipulation
-                    # print("!")
-                    yield ManipResult(
-                        from_ord=p.ballot,
-                        to_ord=manip_cand,
-                        n=n_manips,
-                        orig_outcome=true_outcome,
-                        new_outcome=manip_outcome,
-                        new_votes=new_balls,
-                    )
-
-                    # if minimal n stop will change manipulation
-                    # candidate if one is found for this order change. If not,
-                    # then say the for this candidate 2 switches are enough for the
-                    # manipulation to succeed, then 3,4,5 .. N will also be generated
-                    if conf.minimal_n_stop:
-                        break
+            # execute on a single processor
+            if not conf.multiproc:
+                for manip_cand in dec_cands:  # for each manipulation hypotesis
+                    # if generator reuturns stuff then yield it
+                    for result in test_manipulation(conf, i_prof, manip_cand):
+                        yield result
+            # execute on all available processors
+            else:
+                # build the task function/callable-object
+                task = ManipTask(conf=conf, i_coalition=i_prof)
+                # ran search along the manipulation hypoteses
+                # in parallel
+                for results in pool.imap(task, dec_cands):
+                    if results:  # if the task returns something not empty
+                        for r in results:  # then yield each result
+                            yield r
 
 
 if __name__ == "__main__":
@@ -351,3 +503,7 @@ if __name__ == "__main__":
     # NOTE: the above examples stop search at the first match
     # to go further call multiple times next on the generator
     # or coerce/iterate the generator
+
+    # NOTE: the above examples use the `permut_manip_gen`
+    # as all voters already express a vote for each candidate
+    # so it's equivalent to use `all_permut_manip_gen`

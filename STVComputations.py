@@ -5,6 +5,9 @@ import itertools
 from copy import deepcopy, copy
 from pprint import pprint
 
+# from utils import jitdataclass
+# from numba.experimental import jitclass
+
 
 @dataclass
 class Profile:
@@ -39,6 +42,10 @@ def all_alts(ps: List[Profile]) -> Set[int]:
     return alts
 
 
+def tot_votes(ps: List[Profile]) -> int:
+    return sum([p.count for p in ps])
+
+
 def format_ballot(ballot: str) -> list:
     """extract good format for ballot from a string"""
 
@@ -51,18 +58,6 @@ def format_ballot(ballot: str) -> list:
             my_list.append([int(x)])
 
     return my_list
-
-
-# def format_ballot(ballot: str) -> list[int]:
-#     # @TODO i believe we can remove everything between {} as it states that the alternatives beteen the brackets are equally ranked, and every occasion happens at the end
-#     ballot = ballot.strip()  # removes any whitespaces or newline characters
-#
-#     ballot = re.sub(r',{.*?}', '', ballot)  # removes everything between {} ,
-#
-#     ballot_str = ballot.split(',')  # make list
-#
-#     ballot_int = [int(x) for x in ballot_str]  # convert to int
-#     return ballot_int
 
 
 def line_extract(line: str) -> Profile:
@@ -106,19 +101,6 @@ def plurality_round(
                 1 / len(profile.ballot[0])
             )
 
-        # TODO: remove if you agree with single implem
-        # if len(profile.ballot[0]) == 1:  # should not be doing for [{x,y},z,w]
-        #     alternative_count[profile.ballot[0][0]] += profile.count
-
-        # if (
-        #     len(profile.ballot[0]) > 1
-        # ):  # in case [{1, 2}, 3, 4] -> both 1 and 2 should get 0.5 point per vote
-        #     for idx, alt in enumerate(profile.ballot[0]):
-        #         alternative_count[profile.ballot[0][idx]] += profile.count * (
-        #             1 / len(profile.ballot[0])
-        #         )
-        # =====
-
     return alternative_count
 
 
@@ -127,6 +109,12 @@ def plurality(votes: List[Profile]) -> Set[int]:
     p_scores = plurality_round(votes, alts)
     max_p = max(p_scores.values())
     return set([a for a in alts if p_scores[a] == max_p])
+
+
+def top_rank_majority(votes: List[Profile], p_scores: Dict[int, float]) -> Set[int]:
+    tot = sum([p.count for p in votes])
+    fifty_percent_plus_one = (tot * 0.5) + 1
+    return set([a for a in p_scores.keys() if p_scores[a] >= fifty_percent_plus_one])
 
 
 def remove_alternative(
@@ -202,7 +190,9 @@ def stv_computations(votes: List[Profile], nr_of_alt: int, printing: bool) -> Li
     return [0]
 
 
-def stv(votes: List[Profile], verbose: bool = False) -> Set[int]:
+def stv(
+    votes: List[Profile], verbose: bool = False, break_on_majority=True
+) -> Set[int]:
     """
     Slightly changed stv computation function.
     - Auto computes alternatives from the given List[Profile]
@@ -229,6 +219,12 @@ def stv(votes: List[Profile], verbose: bool = False) -> Set[int]:
         _alts_hist.append(_alts.copy())  # store history of remaining alternatives
 
         p_scores = plurality_round(_votes, _alts)  # run plurality round
+
+        # added break in case of a majority earlier in rounds based
+        # on walsh's paper
+        if break_on_majority:
+            if maj := top_rank_majority(_votes, p_scores):
+                return maj
 
         min_value = min(p_scores.values())  # find minimal score
         # find alts with minimal score
