@@ -69,7 +69,7 @@ def line_extract(line: str) -> Profile:
     return Profile(ballot, count)
 
 
-def extract_data(path: str = "dataset_revised.txt") -> List[Profile]:
+def extract_data(path: str = "./data/city-council.txt") -> List[Profile]:
     """function to read and extract data from the dataset
     :return dictionary containing nr of votes as key, and ballot as value"""
 
