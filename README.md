@@ -92,8 +92,18 @@ A test suite checking correctness properties of the implementation is given in `
 you can run the suite via `$ python test_stv.py` or `$ make test`
 
 
-### Manipulating elections
 
+### Manipulating elections
+We have 2 different methods to calculate whether an election is manipulable or not.
+The first (STVManipulation.py).
+#### STVManipulation.py
+In this file we search for each alternative (x) whether it is possible to be elected above the original winner (y). This is done
+to check for each ballot in the election, whether alternative x is ranked above y, if it is (or y doesn't exist in the ballot at all) 
+then alternative x is swapped with the first choice of the ballot. As well as ranking the alternative y (if it exists) to the last index of the ballot.
+These 2 swaps are both done to create more support for x and less suport for y, thus more chance for alternative x to survive a plurality round, and
+for alternative y to *not* survive the alternative round
+
+#### manip.py / manip_main.py /
 premise:
 - we have a set of Profile objects showing the original (truthful ballots)
 - we have a scf:  `SCF = Callable[[List[Profile]], Set[int]]`
