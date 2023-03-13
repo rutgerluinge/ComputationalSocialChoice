@@ -1,0 +1,5 @@
+peu-bandoos
+pip-chill
+pytest
+seedir
+streamlit
