@@ -1,2 +1,5 @@
+peu-bandoos
+pip-chill
 pytest
-tqdm
+seedir
+streamlit
